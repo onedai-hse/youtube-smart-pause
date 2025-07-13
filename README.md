@@ -54,6 +54,9 @@ The extension uses:
 - Event listeners for video state management
 - MutationObserver for handling dynamic YouTube content
 
+## Demo
+<img width="1702" height="1082" alt="Screenshot 2025-07-13 at 20 04 52" src="https://github.com/user-attachments/assets/af441805-c60e-48bd-91f9-5e22a6e3bfd3" />
+
 ## License
 
 MIT License
