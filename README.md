@@ -1,5 +1,3 @@
-# youtube-smart-pause
-
 # YouTube Smart Pause
 
 A browser extension that helps fact-check arguments of a YouTube video content.
