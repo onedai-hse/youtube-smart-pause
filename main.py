@@ -293,33 +293,37 @@ async def fact_check(request: FactCheckRequest):
 
 @app.get("/transcript/{video_id}")
 async def get_transcript_preview(
-    video_id: str, start_time: float = 0, duration: int = 60
+    video_id: str, end_time: float = 0, duration: int = 30
 ):
     """Получить превью транскрипта для отладки"""
-    # try:
-    transcript_data = get_segment_transcript(
-        video_id, start_time + duration, duration
-    )
-    
-    # Apply the same filtering logic as the analyze endpoint
-    filtered_fact = ""
-    if transcript_data["full_text"].strip():
-        filtered_fact = last_fact_filter.summarize_last_fact(transcript_data["full_text"])
-    
-    return {
-        "video_id": video_id,
-        "segment_info": transcript_data["segment_info"],
-        "text_length": len(transcript_data["full_text"]),
-        "preview": (
-            transcript_data["full_text"][:500] + "..."
-            if len(transcript_data["full_text"]) > 500
-            else transcript_data["full_text"]
-        ),
-        "filtered_fact": filtered_fact,
-        "will_analyze": filtered_fact.strip() if filtered_fact else "No extractable fact found"
-    }
-    # except Exception as e:
-    #     raise HTTPException(status_code=400, detail=str(e))
+    try:
+        # 1. Получаем транскрипт сегмента, используя end_time
+        transcript_data = get_segment_transcript(
+            video_id, end_time=end_time, context_seconds=duration
+        )
+
+        full_transcript = transcript_data.get("full_text", "").strip()
+
+        # 2. Выделяем последний факт
+        if full_transcript:
+            last_fact = last_fact_filter.summarize_last_fact(full_transcript)
+            print(f"transcript {full_transcript}")
+            print(f"return_value {last_fact}")
+        else:
+            last_fact = "No extractable fact found"
+
+        return {
+            "video_id": video_id,
+            "segment_info": transcript_data.get("segment_info"),
+            "full_transcript_preview": (
+                full_transcript[:200] + "..." if len(full_transcript) > 200 else full_transcript
+            ),
+            "will_analyze": last_fact,
+        }
+    except Exception as e:
+        # Log the full error for debugging
+        print(f"Error in get_transcript_preview: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/health")

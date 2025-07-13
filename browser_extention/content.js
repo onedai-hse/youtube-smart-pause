@@ -70,7 +70,7 @@ function getVideoTitle() {
 
 async function extractStatementToAnalyze(videoId, currentTime) {
   try {
-    const response = await fetch(`http://localhost:8000/transcript/${videoId}?start_time=${currentTime}&duration=30`, {
+    const response = await fetch(`http://localhost:8000/transcript/${videoId}?end_time=${currentTime}&duration=30`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
