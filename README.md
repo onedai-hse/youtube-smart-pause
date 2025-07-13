@@ -16,6 +16,7 @@ A browser extension that helps fact-check arguments of a YouTube video content.
 2. Open Chrome/Firefox and go to extensions page
 3. Enable "Developer Mode"
 4. Click "Load unpacked extension" and select the `browser_extension` folder
+5. Run command ```uv run main.py``` to start the backend.
 
 ## Config
 To start the extention, you should create a ```.env``` file:
