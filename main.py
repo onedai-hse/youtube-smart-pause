@@ -9,12 +9,12 @@ from dotenv import load_dotenv
 from youtube_transcript_api._api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
 from collections import defaultdict
-from filter import LastFactFilter
+from filter import LastFactFilter, LastFactOpenAI
 
 load_dotenv()
 app = FastAPI(title="YouTube Pause Assistant API")
 
-last_fact_filter = LastFactFilter()
+last_fact_filter = LastFactOpenAI()
 
 app.add_middleware(
     CORSMiddleware,
