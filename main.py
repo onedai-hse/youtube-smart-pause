@@ -296,30 +296,30 @@ async def get_transcript_preview(
     video_id: str, start_time: float = 0, duration: int = 60
 ):
     """Получить превью транскрипта для отладки"""
-    try:
-        transcript_data = get_segment_transcript(
-            video_id, start_time + duration, duration
-        )
-        
-        # Apply the same filtering logic as the analyze endpoint
-        filtered_fact = ""
-        if transcript_data["full_text"].strip():
-            filtered_fact = last_fact_filter.summarize_last_fact(transcript_data["full_text"])
-        
-        return {
-            "video_id": video_id,
-            "segment_info": transcript_data["segment_info"],
-            "text_length": len(transcript_data["full_text"]),
-            "preview": (
-                transcript_data["full_text"][:500] + "..."
-                if len(transcript_data["full_text"]) > 500
-                else transcript_data["full_text"]
-            ),
-            "filtered_fact": filtered_fact,
-            "will_analyze": filtered_fact.strip() if filtered_fact else "No extractable fact found"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # try:
+    transcript_data = get_segment_transcript(
+        video_id, start_time + duration, duration
+    )
+    
+    # Apply the same filtering logic as the analyze endpoint
+    filtered_fact = ""
+    if transcript_data["full_text"].strip():
+        filtered_fact = last_fact_filter.summarize_last_fact(transcript_data["full_text"])
+    
+    return {
+        "video_id": video_id,
+        "segment_info": transcript_data["segment_info"],
+        "text_length": len(transcript_data["full_text"]),
+        "preview": (
+            transcript_data["full_text"][:500] + "..."
+            if len(transcript_data["full_text"]) > 500
+            else transcript_data["full_text"]
+        ),
+        "filtered_fact": filtered_fact,
+        "will_analyze": filtered_fact.strip() if filtered_fact else "No extractable fact found"
+    }
+    # except Exception as e:
+    #     raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/health")

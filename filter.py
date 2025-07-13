@@ -34,12 +34,12 @@ class LastFactFilter:
     
 
 class LastFactOpenAI:
-    def __init__(self, model_name: str = "google/gemini-2.0-flash-exp:free"):
+    def __init__(self):
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=os.getenv("OPENROUTER_API_KEY"),
         )
-        self.model_name = model_name
+        self.model_name = os.getenv("OPENROUTER_MODEL_NAME")
 
     def summarize_last_fact(self, transcript: str) -> str:
         print("transcript", transcript)
@@ -49,15 +49,17 @@ class LastFactOpenAI:
                 {
                     "role": "user",
                     "content": f"""
-        I'm sending you an excerpt from a video. Your task is to extract the last meaningful phrase from the excerpt.
-        You might get a lot of text, but you need to extract the last meaningful phrase.
+Here is a video transcript:
+<transcript>
+{transcript}
+</transcript>
 
-        Here is the excerpt:
-        <excerpt>
-        {transcript}
-        </excerpt>
-
-        return only the statement itself, nothing else.
+Your task is to carefully read the piece of transcript that we sent and identify only one final fact that was stated at the end of this text. By fact, we mean a specific, clearly expressed statement, event, result, or key information that concludes the discussion in the video.
+Pay attention:
+- Ignore introductions, greetings, farewells, and general reasoning if they don't contain important facts.
+- If there are several sentences at the end of the transcript, choose exactly that fact which logically concludes the narrative.
+- Make a brief and concise summary of this final fact, using simple and clear English.
+- Don't add anything unnecessary, the answer should be as compressed and to the point as possible.
         """,
                 },
             ],
