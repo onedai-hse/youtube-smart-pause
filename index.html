@@ -243,12 +243,53 @@
 
         function parseVerdict(text) {
             const lowerText = text.toLowerCase();
-            if (lowerText.includes('true') || lowerText.includes('верным') || lowerText.includes('correct')) {
-                return { type: 'true', icon: '✓', text: 'TRUE' };
-            } else if (lowerText.includes('false') || lowerText.includes('неверным') || lowerText.includes('incorrect')) {
+            
+            // Count various indicators
+            const falseCount = (lowerText.match(/false|неверно|incorrect|wrong|ошибочно|inaccurate|misleading|untrue|неправда|debunked|disproven|contradicted|unfounded/g) || []).length;
+            const trueCount = (lowerText.match(/true|верно|correct|accurate|confirmed|подтверждено|factual|valid|действительно|verified|проверено|reliable|supported/g) || []).length;
+            
+            // Check for uncertainty indicators
+            const hasUncertainty = lowerText.includes('uncertain') || lowerText.includes('неясно') || 
+                                  lowerText.includes('unclear') || lowerText.includes('неопределенно') ||
+                                  lowerText.includes('mixed') || lowerText.includes('смешанные') ||
+                                  lowerText.includes('partially') || lowerText.includes('частично') ||
+                                  lowerText.includes('depends') || lowerText.includes('зависит');
+
+            // Decision logic with weighted scoring
+            if (falseCount > trueCount && falseCount >= 1) {
                 return { type: 'false', icon: '✗', text: 'FALSE' };
+            } else if (trueCount > falseCount && trueCount >= 1) {
+                return { type: 'true', icon: '✓', text: 'TRUE' };
+            } else if (hasUncertainty || (trueCount === 0 && falseCount === 0)) {
+                return { type: 'unclear', icon: '?', text: 'UNCLEAR' };
+            } else if (trueCount === falseCount && trueCount > 0) {
+                // If equal counts but both present, likely unclear
+                return { type: 'unclear', icon: '?', text: 'UNCLEAR' };
             } else {
                 return { type: 'unclear', icon: '?', text: 'UNCLEAR' };
+            }
+        }
+
+        async function getVerdictFromAPI(statement) {
+            try {
+                const response = await fetch('http://localhost:8000/check-statement', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ statement: statement })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                return data.verdict;
+            } catch (error) {
+                console.error('Error getting verdict from API:', error);
+                // Fallback to local parsing
+                return parseVerdict(statement);
             }
         }
 
@@ -316,11 +357,9 @@
                 // Parse the complete response
                 const lines = fullResponse.split('\n');
                 let explanation = '';
-                let foundVerdict = false;
                 
-                // Extract verdict from first few lines
-                const firstPart = lines.slice(0, 3).join(' ');
-                const verdict = parseVerdict(firstPart);
+                // Get verdict from API for better accuracy
+                const verdict = await getVerdictFromAPI(statement);
                 updateVerdict(verdict);
 
                 // Extract explanation (skip sources)
