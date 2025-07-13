@@ -1,0 +1,13 @@
+{
+    "manifest_version": 3,
+    "name": "YouTube Pause Assistant",
+    "version": "1.0",
+    "description": "Analyzes YouTube content on pause",
+    "permissions": ["activeTab", "storage"],
+    "host_permissions": ["https://www.youtube.com/*"],
+    "content_scripts": [{
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["marked.min.js", "content.js"],
+      "css": ["sidebar.css"]
+    }]
+  }
