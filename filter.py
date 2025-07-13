@@ -34,7 +34,7 @@ class LastFactFilter:
     
 
 class LastFactOpenAI:
-    def __init__(self, model_name: str = "google/gemma-3n-e2b-it:free"):
+    def __init__(self, model_name: str = "google/gemini-2.0-flash-exp:free"):
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=os.getenv("OPENROUTER_API_KEY"),
