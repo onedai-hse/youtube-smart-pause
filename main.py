@@ -88,7 +88,6 @@ def get_segment_transcript(
         # Группируем по времени
         grouped = defaultdict(list)
         full_text = []
-        transcript_items = []
 
         for item in transcript:
             item_start = item.get("start", 0)
@@ -102,11 +101,6 @@ def get_segment_transcript(
             text = item.get("text", "")
             grouped[label].append(text)
             full_text.append(text)
-            transcript_items.append({
-                "start": item_start,
-                "text": text,
-                "relative_time": item_start - start_time
-            })
 
         combined_text = " ".join(full_text)
 
@@ -115,31 +109,11 @@ def get_segment_transcript(
             "end_time": end_time,
             "grouped": dict(grouped),
             "full_text": combined_text,
-            "transcript_items": transcript_items,
             "segment_info": f"Сегмент с {format_time(start_time)} до {format_time(end_time)}",
         }
 
     except Exception as e:
         raise Exception(f"Ошибка получения транскрипта: {str(e)}")
-
-
-def extract_recent_statements(transcript_data: dict, last_seconds: int = 10) -> str:
-    """Извлекает утверждения из последних N секунд транскрипта"""
-    if not transcript_data.get("transcript_items"):
-        return transcript_data.get("full_text", "")
-    
-    # Фильтруем элементы из последних N секунд
-    recent_items = [
-        item for item in transcript_data["transcript_items"]
-        if item["relative_time"] >= (transcript_data["end_time"] - transcript_data["start_time"] - last_seconds)
-    ]
-    
-    if not recent_items:
-        # Если нет элементов в последних N секундах, берем последние 3 элемента
-        recent_items = transcript_data["transcript_items"][-3:]
-    
-    recent_text = " ".join([item["text"] for item in recent_items])
-    return recent_text.strip()
 
 
 PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
@@ -270,27 +244,20 @@ async def analyze_video(request: VideoAnalysisRequest):
                 status_code=404, detail="Транскрипт для данного видео недоступен"
             )
 
-        # 2. Извлекаем утверждения из последних 10 секунд для анализа
-        recent_statements = extract_recent_statements(transcript_data, last_seconds=10)
-        
-        # 3. Выделяем последний факт из недавних утверждений
-        last_fact = last_fact_filter.summarize_last_fact(recent_statements)
+        # 2. Выделяем последний факт с помощью фильтра
+        last_fact = last_fact_filter.summarize_last_fact(full_transcript)
 
-        # 4. Выводим информацию в консоль для отладки
-        print("\n--- Original Transcript (30s) ---")
+        # 3. Выводим информацию в консоль для отладки
+        print("\n--- Original Transcript ---")
         print(f"Segment: {transcript_data['segment_info']}")
-        print(f"Full Text: {full_transcript}")
+        print(f"Text: {full_transcript}")
         print("---------------------------\n")
-
-        print("\n--- Recent Statements (Last 10s) ---")
-        print(f"Recent Text: {recent_statements}")
-        print("------------------------------------\n")
 
         print("\n--- Filtered Fact for Perplexity ---")
         print(f"Fact: {last_fact}")
         print("------------------------------------\n")
 
-        # 5. Анализируем отфильтрованный факт через Perplexity
+        # 4. Анализируем отфильтрованный факт через Perplexity
         fact_check_result = await get_perplexity_fact_check(last_fact, transcript_data["segment_info"])
         
         return VideoAnalysisResponse(
@@ -336,11 +303,8 @@ async def get_transcript_preview(
     
     # Apply the same filtering logic as the analyze endpoint
     filtered_fact = ""
-    recent_statements = ""
     if transcript_data["full_text"].strip():
-        recent_statements = extract_recent_statements(transcript_data, last_seconds=10)
-        if recent_statements.strip():
-            filtered_fact = last_fact_filter.summarize_last_fact(recent_statements)
+        filtered_fact = last_fact_filter.summarize_last_fact(transcript_data["full_text"])
     
     return {
         "video_id": video_id,
@@ -351,7 +315,6 @@ async def get_transcript_preview(
             if len(transcript_data["full_text"]) > 500
             else transcript_data["full_text"]
         ),
-        "recent_statements": recent_statements,
         "filtered_fact": filtered_fact,
         "will_analyze": filtered_fact.strip() if filtered_fact else "No extractable fact found"
     }
