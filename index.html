@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Fact Checker</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .search-container {
+            margin-bottom: 30px;
+        }
+        
+        #searchInput {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        
+        #searchInput:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        #factCheckBtn {
+            width: 100%;
+            padding: 15px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        
+        #factCheckBtn:hover {
+            background: #0056b3;
+        }
+        
+        #factCheckBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .response-container {
+            margin-top: 20px;
+        }
+        
+        .verdict-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            background: #f9f9f9;
+            border: 2px solid #ddd;
+        }
+        
+        .verdict-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .verdict-true {
+            background: #28a745;
+            color: white;
+        }
+        
+        .verdict-false {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .verdict-unclear {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .verdict-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .explanation-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        
+        .explanation-section h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .explanation-content {
+            font-family: Georgia, serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #555;
+        }
+        
+        .sources-section {
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: #f0f8ff;
+        }
+        
+        .sources-section h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .sources-content {
+            font-family: Georgia, serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #555;
+        }
+        
+        .loading {
+            color: #666;
+            font-style: italic;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Fact Checker</h1>
+        
+        <div class="search-container">
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Enter a statement to fact-check..."
+                maxlength="500"
+            >
+            <button id="factCheckBtn">Fact Check</button>
+        </div>
+        
+        <div class="response-container">
+            <div id="loadingArea" class="loading hidden">Analyzing statement...</div>
+            
+            <div id="verdictSection" class="verdict-section hidden">
+                <div id="verdictIcon" class="verdict-icon"></div>
+                <div id="verdictText" class="verdict-text"></div>
+            </div>
+            
+            <div id="explanationSection" class="explanation-section hidden">
+                <h3>Explanation</h3>
+                <div id="explanationContent" class="explanation-content"></div>
+            </div>
+            
+            <div id="sourcesSection" class="sources-section hidden">
+                <h3>Sources</h3>
+                <div id="sourcesContent" class="sources-content"></div>
+            </div>
+            
+            <div id="errorArea" class="error hidden"></div>
+            
+            <div id="initialMessage" class="loading">Enter a statement above to begin fact-checking...</div>
+        </div>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const factCheckBtn = document.getElementById('factCheckBtn');
+        const loadingArea = document.getElementById('loadingArea');
+        const verdictSection = document.getElementById('verdictSection');
+        const verdictIcon = document.getElementById('verdictIcon');
+        const verdictText = document.getElementById('verdictText');
+        const explanationSection = document.getElementById('explanationSection');
+        const explanationContent = document.getElementById('explanationContent');
+        const sourcesSection = document.getElementById('sourcesSection');
+        const sourcesContent = document.getElementById('sourcesContent');
+        const errorArea = document.getElementById('errorArea');
+        const initialMessage = document.getElementById('initialMessage');
+
+        factCheckBtn.addEventListener('click', performFactCheck);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performFactCheck();
+            }
+        });
+
+        function hideAllSections() {
+            loadingArea.classList.add('hidden');
+            verdictSection.classList.add('hidden');
+            explanationSection.classList.add('hidden');
+            sourcesSection.classList.add('hidden');
+            errorArea.classList.add('hidden');
+            initialMessage.classList.add('hidden');
+        }
+
+        function parseVerdict(text) {
+            const lowerText = text.toLowerCase();
+            if (lowerText.includes('true') || lowerText.includes('верным') || lowerText.includes('correct')) {
+                return { type: 'true', icon: '✓', text: 'TRUE' };
+            } else if (lowerText.includes('false') || lowerText.includes('неверным') || lowerText.includes('incorrect')) {
+                return { type: 'false', icon: '✗', text: 'FALSE' };
+            } else {
+                return { type: 'unclear', icon: '?', text: 'UNCLEAR' };
+            }
+        }
+
+        function updateVerdict(verdict) {
+            verdictIcon.textContent = verdict.icon;
+            verdictIcon.className = `verdict-icon verdict-${verdict.type}`;
+            verdictText.textContent = verdict.text;
+            verdictSection.classList.remove('hidden');
+        }
+
+        function extractSources(text) {
+            const urlRegex = /(https?:\/\/[^\s\)]+)/g;
+            const matches = text.match(urlRegex) || [];
+            
+            // Clean up URLs (remove trailing punctuation)
+            return matches.map(url => {
+                return url.replace(/[.,;:)}\]]+$/, '');
+            }).filter((url, index, self) => {
+                // Remove duplicates
+                return self.indexOf(url) === index;
+            });
+        }
+
+        async function performFactCheck() {
+            const statement = searchInput.value.trim();
+            
+            if (!statement) {
+                alert('Please enter a statement to fact-check');
+                return;
+            }
+
+            hideAllSections();
+            loadingArea.classList.remove('hidden');
+            factCheckBtn.disabled = true;
+            factCheckBtn.textContent = 'Checking...';
+
+            try {
+                const response = await fetch('http://localhost:8000/fact-check', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ statement: statement })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                hideAllSections();
+                
+                let fullResponse = '';
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value, { stream: true });
+                    fullResponse += chunk;
+                }
+
+                // Parse the complete response
+                const lines = fullResponse.split('\n');
+                let explanation = '';
+                let foundVerdict = false;
+                
+                // Extract verdict from first few lines
+                const firstPart = lines.slice(0, 3).join(' ');
+                const verdict = parseVerdict(firstPart);
+                updateVerdict(verdict);
+
+                // Extract explanation (skip sources)
+                for (const line of lines) {
+                    if (!line.toLowerCase().includes('source') && 
+                        !line.includes('http') && 
+                        !line.includes('www.') &&
+                        !line.includes('[') &&
+                        line.trim().length > 0) {
+                        explanation += line + '\n';
+                    }
+                }
+
+                // Limit explanation to first 200 characters
+                if (explanation.length > 200) {
+                    explanation = explanation.substring(0, 200) + '...';
+                }
+
+                explanationContent.textContent = explanation.trim();
+                explanationSection.classList.remove('hidden');
+
+                // Extract and display sources
+                const sources = extractSources(fullResponse);
+                if (sources.length > 0) {
+                    sourcesContent.innerHTML = sources.slice(0, 3).map(source => 
+                        `<div style="margin-bottom: 8px;">• <a href="${source}" target="_blank" style="color: #007bff; text-decoration: none;">${source}</a></div>`
+                    ).join('');
+                    sourcesSection.classList.remove('hidden');
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                hideAllSections();
+                errorArea.textContent = `Error: ${error.message}`;
+                errorArea.classList.remove('hidden');
+            } finally {
+                factCheckBtn.disabled = false;
+                factCheckBtn.textContent = 'Fact Check';
+            }
+        }
+    </script>
+</body>
+</html>
