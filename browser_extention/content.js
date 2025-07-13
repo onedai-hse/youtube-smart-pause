@@ -1,11 +1,10 @@
-if (typeof marked === 'function') {
-  console.log('YouTube Assistant: marked.js library loaded successfully.');
-} else {
-  console.error('YouTube Assistant: marked.js library NOT FOUND. Markdown will not be rendered. Please ensure marked.min.js is in the browser_extention folder.');
-}
+// YouTube Smart Pause Extension - Content Script
+console.log('YouTube Assistant: Content script loaded successfully.');
 
 let sidebarOpen = false;
 let updateInterval = null;
+let lastUpdateTime = 0;
+let lastVideoTime = 0;
 
 function getVideoId() {
   const url = window.location.href;
@@ -45,7 +44,51 @@ function createSidebar() {
   return sidebar;
 }
 
-function updateVideoInfo() {
+function getVideoTitle() {
+  // Try multiple selectors to get the video title
+  const titleSelectors = [
+    'h1.title.style-scope.ytd-video-primary-info-renderer',
+    'h1.ytd-video-primary-info-renderer', 
+    'h1[class*="title"]',
+    'ytd-video-primary-info-renderer h1',
+    '.title.style-scope.ytd-video-primary-info-renderer'
+  ];
+  
+  for (const selector of titleSelectors) {
+    const titleElement = document.querySelector(selector);
+    if (titleElement) {
+      return titleElement.textContent.trim();
+    }
+  }
+  
+  return 'Video title not found';
+}
+
+async function getExtractablePhrase(videoId, currentTime) {
+  try {
+    const response = await fetch(`http://localhost:8000/transcript/${videoId}?start_time=${currentTime}&duration=30`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      return 'Preview not available';
+    }
+    
+    const data = await response.json();
+    
+    // Use the filtered fact that would actually be analyzed
+    if (data.will_analyze) {
+      return data.will_analyze;
+    }
+    
+    return 'No extractable fact found';
+  } catch (error) {
+    return 'Error loading preview';
+  }
+}
+
+async function updateVideoInfo() {
   const video = document.querySelector('video');
   const videoInfo = document.getElementById('assistant-video-info');
   
@@ -61,11 +104,72 @@ function updateVideoInfo() {
     const duration = Math.floor(video.duration);
     const videoId = getVideoId();
     const progress = ((currentTime / duration) * 100).toFixed(1);
+    const videoTitle = getVideoTitle();
+    
+    const now = Date.now();
+    let extractablePhrase = 'Loading preview...';
+    
+    // Throttle API calls: only update extractable phrase every 5 seconds or when video time changes significantly
+    const shouldUpdatePhrase = (now - lastUpdateTime > 5000) || (Math.abs(currentTime - lastVideoTime) > 10);
+    
+    if (shouldUpdatePhrase) {
+      lastUpdateTime = now;
+      lastVideoTime = currentTime;
+      extractablePhrase = await getExtractablePhrase(videoId, currentTime);
+    } else {
+      // Use cached phrase or show loading
+      const cachedPhrase = videoInfo.querySelector('.extractable-phrase');
+      if (cachedPhrase) {
+        extractablePhrase = cachedPhrase.textContent.replace(/^"|"$/g, '');
+      }
+    }
     
     videoInfo.innerHTML = `
-      <p>Time: ${formatTime(currentTime)} / ${formatTime(duration)} (${progress}%)</p>
-      <p>Video ID: ${videoId || 'Not found'}</p>
-      <p>${video.paused ? 'Paused' : 'Playing'}</p>
+      <div style="margin-bottom: 12px;">
+        <h4 style="
+          margin: 0 0 8px 0;
+          font-size: 14px;
+          font-weight: 600;
+          color: #fff;
+          line-height: 1.3;
+          opacity: 0.9;
+        ">${videoTitle}</h4>
+        <p style="
+          margin: 0 0 8px 0;
+          font-size: 12px;
+          color: #fff;
+          opacity: 0.7;
+        ">Time: ${formatTime(currentTime)} / ${formatTime(duration)} (${progress}%)</p>
+        <p style="
+          margin: 0;
+          font-size: 12px;
+          color: #fff;
+          opacity: 0.7;
+        ">${video.paused ? '⏸️ Paused' : '▶️ Playing'}</p>
+      </div>
+      
+      <div style="
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 12px;
+        border-left: 3px solid #007aff;
+      ">
+        <h5 style="
+          margin: 0 0 8px 0;
+          font-size: 12px;
+          font-weight: 600;
+          color: #fff;
+          opacity: 0.9;
+        ">🎯 Next Analysis Preview:</h5>
+        <p class="extractable-phrase" style="
+          margin: 0;
+          font-size: 11px;
+          color: #fff;
+          opacity: 0.8;
+          line-height: 1.4;
+          font-style: italic;
+        ">"${extractablePhrase}"</p>
+      </div>
     `;
   } else {
     videoInfo.innerHTML = '<p>Video loading...</p>';
@@ -96,7 +200,7 @@ function showSidebar() {
   sidebarOpen = true;
   
   updateVideoInfo();
-  updateInterval = setInterval(updateVideoInfo, 1000);
+  updateInterval = setInterval(updateVideoInfo, 2000); // Update every 2 seconds since we're throttling API calls
 }
 
 function closeSidebar() {
@@ -114,6 +218,75 @@ function closeSidebar() {
       }
     }, 400);
   }
+}
+
+function createVerdictBadge(decision) {
+  const badgeStyles = {
+    'true': { color: '#fff', bg: '#34c759', icon: '✓', text: 'TRUE' },
+    'false': { color: '#fff', bg: '#ff3b30', icon: '✗', text: 'FALSE' },
+    'unknown': { color: '#fff', bg: '#ff9500', icon: '?', text: 'UNCLEAR' }
+  };
+  
+  const style = badgeStyles[decision.toLowerCase()] || badgeStyles['unknown'];
+  
+  return `
+    <div style="
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: ${style.bg};
+      color: ${style.color};
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    ">
+      <span style="font-size: 16px;">${style.icon}</span>
+      <span>${style.text}</span>
+    </div>
+  `;
+}
+
+function createSourcesCard(sources) {
+  if (!sources || sources.length === 0) {
+    return '';
+  }
+  
+  const sourcesList = sources.map(source => `
+    <div style="margin-bottom: 8px;">
+      <a href="${source}" target="_blank" style="
+        color: #007aff;
+        text-decoration: none;
+        font-size: 14px;
+        line-height: 1.4;
+        display: block;
+        word-break: break-all;
+      " onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+        🔗 ${source}
+      </a>
+    </div>
+  `).join('');
+  
+  return `
+    <div style="
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    ">
+      <h5 style="
+        margin: 0 0 12px 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+        opacity: 0.9;
+      ">📚 Sources</h5>
+      <div>${sourcesList}</div>
+    </div>
+  `;
 }
 
 async function analyzeCurrentPosition() {
@@ -152,30 +325,95 @@ async function analyzeCurrentPosition() {
       throw new Error(`Server error: ${response.status} - ${errorText}`);
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    resultDiv.innerHTML = ''; // Clear "Analyzing..."
-    let fullText = '';
+    const data = await response.json();
     
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      const chunk = decoder.decode(value, { stream: true });
-      fullText += chunk;
-      if (typeof marked === 'function') {
-        resultDiv.innerHTML = marked.parse(fullText);
-      } else {
-        resultDiv.textContent = fullText; // Fallback if marked.js is not loaded
-      }
+    // Handle structured response
+    if (data.fact_check) {
+      const verdictBadge = createVerdictBadge(data.fact_check.final_decision);
+      const sourcesCard = createSourcesCard(data.fact_check.sources);
+      
+      resultDiv.innerHTML = `
+        <div style="color: #fff;">
+          ${verdictBadge}
+          
+          <div style="margin-bottom: 16px;">
+            <h5 style="
+              margin: 0 0 8px 0;
+              font-size: 14px;
+              font-weight: 600;
+              color: #fff;
+              opacity: 0.9;
+            ">📝 Analysis</h5>
+            <p style="
+              margin: 0;
+              font-size: 14px;
+              line-height: 1.5;
+              color: #fff;
+              opacity: 0.9;
+            ">${data.fact_check.short_explanation}</p>
+          </div>
+          
+          <div style="margin-bottom: 16px;">
+            <h5 style="
+              margin: 0 0 8px 0;
+              font-size: 14px;
+              font-weight: 600;
+              color: #fff;
+              opacity: 0.9;
+            ">🎯 Analyzed Statement</h5>
+            <p style="
+              margin: 0;
+              font-size: 13px;
+              line-height: 1.4;
+              color: #fff;
+              opacity: 0.7;
+              font-style: italic;
+              background: rgba(255, 255, 255, 0.1);
+              padding: 12px;
+              border-radius: 8px;
+              border-left: 3px solid #007aff;
+            ">"${data.analyzed_fact}"</p>
+          </div>
+          
+          ${sourcesCard}
+          
+          <div style="
+            margin-top: 16px;
+            padding: 8px;
+            background: rgba(52, 199, 89, 0.2);
+            border-radius: 8px;
+            border: 1px solid rgba(52, 199, 89, 0.3);
+          ">
+            <p style="
+              margin: 0;
+              font-size: 12px;
+              color: #34c759;
+              text-align: center;
+              font-weight: 500;
+            ">✅ Analysis completed successfully!</p>
+          </div>
+        </div>
+      `;
+    } else {
+      throw new Error('Invalid response format from API');
     }
     
-    // Добавляем успешное завершение
-    resultDiv.innerHTML += '<p style="color: #34c759; margin-top: 16px;">Analysis completed successfully!</p>';
-    
   } catch (error) {
-    resultDiv.innerHTML = `<p>❌ Error: ${error.message}</p>`;
+    resultDiv.innerHTML = `
+      <div style="
+        padding: 16px;
+        background: rgba(255, 59, 48, 0.2);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 59, 48, 0.3);
+      ">
+        <p style="
+          margin: 0;
+          color: #ff3b30;
+          font-size: 14px;
+          font-weight: 500;
+        ">❌ Error: ${error.message}</p>
+      </div>
+    `;
   } finally {
     // Восстанавливаем кнопку
     buttonText.style.display = 'inline';
