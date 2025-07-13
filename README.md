@@ -22,6 +22,7 @@ To start the extention, you should create a ```.env``` file:
 ```
 PERPLEXITY_API_KEY=<Your Perplexity API Key>
 OPENROUTER_API_KEY=<Your OpenRouter API Key>
+OPENROUTER_MODEL_NAM=<OpenRouter Model Name>
 ```
 
 ## Usage
