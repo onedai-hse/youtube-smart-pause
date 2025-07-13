@@ -42,27 +42,28 @@ class LastFactOpenAI:
         self.model_name = model_name
 
     def summarize_last_fact(self, transcript: str) -> str:
+        print("transcript", transcript)
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=[
                 {
                     "role": "user",
                     "content": f"""
-        Вот транскрипт видео:
+        I'm sending you an excerpt from a video. Your task is to extract the last meaningful phrase from the excerpt.
+        You might get a lot of text, but you need to extract the last meaningful phrase.
+
+        Here is the excerpt:
+        <excerpt>
         {transcript}
+        </excerpt>
 
-        Твоя задача — внимательно проанализировать весь транскрипт и определить **только один последний факт**, который был озвучен в конце этого текста. Под фактом понимается конкретное, чётко выраженное утверждение, событие, результат или ключевая информация, которая завершает обсуждение в видео.
-
-        Обрати внимание:
-        - Игнорируй вводные, приветствия, прощания и общие рассуждения, если они не содержат важного факта.
-        - Если в конце транскрипта есть несколько предложений, выбери именно тот факт, который логически завершает повествование.
-        - Сделай краткое и ёмкое резюме этого последнего факта, используя простой и понятный русский язык.
-        - Не добавляй ничего лишнего, ответ должен быть максимально сжатым и по существу.
-
-        Пожалуйста, ответь только сжато на русском языке.
-
+        return only the statement itself, nothing else.
         """,
                 },
             ],
         )
-        return response.choices[0].message.content.strip()
+
+        return_value = response.choices[0].message.content.strip()
+        print("return_value", return_value)
+
+        return return_value

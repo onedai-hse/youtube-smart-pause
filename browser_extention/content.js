@@ -26,14 +26,18 @@ function createSidebar() {
         <div id="assistant-video-info">Loading...</div>
       </div>
       <div class="section">
+        <h4>🎯 Statement to Analyze</h4>
+        <div id="statement-to-analyze">Extracting statement...</div>
+      </div>
+      <div class="section">
         <button id="analyze-current">
-          <span class="button-text">Analyze Current Position</span>
+          <span class="button-text">Analyze Statement</span>
           <span class="button-loading" style="display: none;">Analyzing...</span>
         </button>
       </div>
       <div class="section">
         <h4>Analysis Result</h4>
-        <div id="analysis-result">Press "Analyze" to start</div>
+        <div id="analysis-result">Press "Analyze Statement" to start</div>
       </div>
     </div>
   `;
@@ -64,7 +68,7 @@ function getVideoTitle() {
   return 'Video title not found';
 }
 
-async function getExtractablePhrase(videoId, currentTime) {
+async function extractStatementToAnalyze(videoId, currentTime) {
   try {
     const response = await fetch(`http://localhost:8000/transcript/${videoId}?start_time=${currentTime}&duration=30`, {
       method: 'GET',
@@ -72,21 +76,24 @@ async function getExtractablePhrase(videoId, currentTime) {
     });
     
     if (!response.ok) {
-      return 'Preview not available';
+      return 'Statement extraction failed';
     }
     
     const data = await response.json();
     
     // Use the filtered fact that would actually be analyzed
-    if (data.will_analyze) {
+    if (data.will_analyze && data.will_analyze !== 'No extractable fact found') {
       return data.will_analyze;
     }
     
-    return 'No extractable fact found';
+    return 'No extractable statement found in current segment';
   } catch (error) {
-    return 'Error loading preview';
+    return 'Error extracting statement';
   }
 }
+
+// Store the current statement to analyze
+let currentStatementToAnalyze = null;
 
 async function updateVideoInfo() {
   const video = document.querySelector('video');
@@ -102,27 +109,8 @@ async function updateVideoInfo() {
   if (video.duration && !isNaN(video.duration)) {
     const currentTime = Math.floor(video.currentTime);
     const duration = Math.floor(video.duration);
-    const videoId = getVideoId();
     const progress = ((currentTime / duration) * 100).toFixed(1);
     const videoTitle = getVideoTitle();
-    
-    const now = Date.now();
-    let extractablePhrase = 'Loading preview...';
-    
-    // Throttle API calls: only update extractable phrase every 5 seconds or when video time changes significantly
-    const shouldUpdatePhrase = (now - lastUpdateTime > 5000) || (Math.abs(currentTime - lastVideoTime) > 10);
-    
-    if (shouldUpdatePhrase) {
-      lastUpdateTime = now;
-      lastVideoTime = currentTime;
-      extractablePhrase = await getExtractablePhrase(videoId, currentTime);
-    } else {
-      // Use cached phrase or show loading
-      const cachedPhrase = videoInfo.querySelector('.extractable-phrase');
-      if (cachedPhrase) {
-        extractablePhrase = cachedPhrase.textContent.replace(/^"|"$/g, '');
-      }
-    }
     
     videoInfo.innerHTML = `
       <div style="margin-bottom: 12px;">
@@ -147,32 +135,62 @@ async function updateVideoInfo() {
           opacity: 0.7;
         ">${video.paused ? '⏸️ Paused' : '▶️ Playing'}</p>
       </div>
-      
+    `;
+  } else {
+    videoInfo.innerHTML = '<p>Video loading...</p>';
+  }
+}
+
+async function updateStatementToAnalyze() {
+  const video = document.querySelector('video');
+  const statementDiv = document.getElementById('statement-to-analyze');
+  
+  if (!statementDiv || !video) return;
+  
+  const videoId = getVideoId();
+  const currentTime = Math.floor(video.currentTime);
+  
+  // Extract the statement
+  const statement = await extractStatementToAnalyze(videoId, currentTime);
+  currentStatementToAnalyze = statement;
+  
+  // Display the statement
+  if (statement === 'No extractable statement found in current segment' || 
+      statement === 'Error extracting statement' || 
+      statement === 'Statement extraction failed') {
+    statementDiv.innerHTML = `
+      <div style="
+        background: rgba(255, 152, 0, 0.2);
+        border-radius: 8px;
+        padding: 12px;
+        border-left: 3px solid #ff9500;
+      ">
+        <p style="
+          margin: 0;
+          font-size: 13px;
+          color: #ff9500;
+          font-weight: 500;
+        ">${statement}</p>
+      </div>
+    `;
+  } else {
+    statementDiv.innerHTML = `
       <div style="
         background: rgba(255, 255, 255, 0.1);
         border-radius: 8px;
         padding: 12px;
         border-left: 3px solid #007aff;
       ">
-        <h5 style="
-          margin: 0 0 8px 0;
-          font-size: 12px;
-          font-weight: 600;
+        <p style="
+          margin: 0;
+          font-size: 13px;
+          line-height: 1.4;
           color: #fff;
           opacity: 0.9;
-        ">🎯 Next Analysis Preview:</h5>
-        <p class="extractable-phrase" style="
-          margin: 0;
-          font-size: 11px;
-          color: #fff;
-          opacity: 0.8;
-          line-height: 1.4;
           font-style: italic;
-        ">"${extractablePhrase}"</p>
+        ">"${statement}"</p>
       </div>
     `;
-  } else {
-    videoInfo.innerHTML = '<p>Video loading...</p>';
   }
 }
 
@@ -199,8 +217,12 @@ function showSidebar() {
   
   sidebarOpen = true;
   
+  // Update video info and extract statement immediately
   updateVideoInfo();
-  updateInterval = setInterval(updateVideoInfo, 2000); // Update every 2 seconds since we're throttling API calls
+  updateStatementToAnalyze();
+  
+  // Only update video info periodically, statement is extracted once on sidebar open
+  updateInterval = setInterval(updateVideoInfo, 2000);
 }
 
 function closeSidebar() {
@@ -301,20 +323,42 @@ async function analyzeCurrentPosition() {
     return;
   }
   
+  // Check if we have a statement to analyze
+  if (!currentStatementToAnalyze || 
+      currentStatementToAnalyze === 'No extractable statement found in current segment' ||
+      currentStatementToAnalyze === 'Error extracting statement' ||
+      currentStatementToAnalyze === 'Statement extraction failed') {
+    resultDiv.innerHTML = `
+      <div style="
+        padding: 16px;
+        background: rgba(255, 152, 0, 0.2);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 152, 0, 0.3);
+      ">
+        <p style="
+          margin: 0;
+          color: #ff9500;
+          font-size: 14px;
+          font-weight: 500;
+        ">⚠️ No statement available for analysis</p>
+      </div>
+    `;
+    return;
+  }
+  
   // Показываем состояние загрузки
   buttonText.style.display = 'none';
   buttonLoading.style.display = 'inline';
   button.disabled = true;
-  resultDiv.innerHTML = '<p>Analyzing video content...</p>';
+  resultDiv.innerHTML = '<p>Analyzing statement...</p>';
   
+  // Use the fact-check endpoint with the already extracted statement
   const requestData = {
-    video_id: getVideoId(),
-    current_time: video.currentTime,
-    context_seconds: 30
+    statement: currentStatementToAnalyze
   };
   
   try {
-    const response = await fetch('http://localhost:8000/analyze', {
+    const response = await fetch('http://localhost:8000/fact-check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestData)
@@ -351,28 +395,6 @@ async function analyzeCurrentPosition() {
               color: #fff;
               opacity: 0.9;
             ">${data.fact_check.short_explanation}</p>
-          </div>
-          
-          <div style="margin-bottom: 16px;">
-            <h5 style="
-              margin: 0 0 8px 0;
-              font-size: 14px;
-              font-weight: 600;
-              color: #fff;
-              opacity: 0.9;
-            ">🎯 Analyzed Statement</h5>
-            <p style="
-              margin: 0;
-              font-size: 13px;
-              line-height: 1.4;
-              color: #fff;
-              opacity: 0.7;
-              font-style: italic;
-              background: rgba(255, 255, 255, 0.1);
-              padding: 12px;
-              border-radius: 8px;
-              border-left: 3px solid #007aff;
-            ">"${data.analyzed_fact}"</p>
           </div>
           
           ${sourcesCard}

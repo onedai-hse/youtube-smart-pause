@@ -7,7 +7,7 @@
     "host_permissions": ["https://www.youtube.com/*"],
     "content_scripts": [{
       "matches": ["https://www.youtube.com/*"],
-      "js": ["content.js"],
+      "js": ["config.js", "content.js"],
       "css": ["sidebar.css"]
     }]
   }
