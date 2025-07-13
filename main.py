@@ -1,11 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import httpx
 import json
 import os
-from typing import AsyncGenerator
+from typing import List
 from dotenv import load_dotenv
 from youtube_transcript_api._api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
@@ -34,6 +33,25 @@ class VideoAnalysisRequest(BaseModel):
     video_id: str
     current_time: float
     context_seconds: int = 30  # По умолчанию 30 секунд
+
+
+class FactCheckResponse(BaseModel):
+    final_decision: str  # "true", "false", or "unknown"
+    short_explanation: str
+    sources: List[str]
+
+
+class VideoAnalysisResponse(BaseModel):
+    video_id: str
+    current_time: float
+    segment_info: str
+    analyzed_fact: str
+    fact_check: FactCheckResponse
+
+
+class FactCheckEndpointResponse(BaseModel):
+    statement: str
+    fact_check: FactCheckResponse
 
 
 # Настройки прокси (если нужны)
@@ -101,38 +119,70 @@ def get_segment_transcript(
 PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
 
 
-async def stream_perplexity_response(
+async def get_perplexity_fact_check(
     statement: str, context_info: str = ""
-) -> AsyncGenerator[str, None]:
-    """Stream response from Perplexity API"""
+) -> FactCheckResponse:
+    """Get structured fact-check response from Perplexity API"""
     api_key = os.getenv("PERPLEXITY_API_KEY")
     if not api_key:
-        yield "Error: PERPLEXITY_API_KEY environment variable not set"
-        return
+        raise HTTPException(status_code=500, detail="PERPLEXITY_API_KEY environment variable not set")
 
-    prompt = f"""Проанализируй содержимое YouTube видео на предмет фактической точности и объясни ключевые понятия:
+    prompt = f"""
+Here's a statement from the middle of a youtube video, please fact-check it: 
 
-{context_info}
+<statement>
+{statement}
+</statement>
 
-Содержимое: "{statement}"
+Analyze the statement and provide a structured response with:
+1. A final decision (true/false/unknown)
+2. A short 2-3 sentence explanation based on reliable sources
+3. Source links that were used for verification
 
-Пожалуйста:
-1. Выдели ключевые фактические утверждения
-2. Проверь их точность, используя надежные источники
-3. Объясни технические термины или концепции простым языком
-4. Предоставь дополнительный контекст и полезную информацию
-5. Отвечай **кратко, ёмко** и на том же языке, что и содержимое"""
+Be precise and concise in your assessment.
+"""
+
+    # JSON Schema for structured output
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "fact_check_response",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "final_decision": {
+                        "type": "string",
+                        "enum": ["true", "false", "unknown"],
+                        "description": "The final fact-checking decision"
+                    },
+                    "short_explanation": {
+                        "type": "string",
+                        "description": "A 2-3 sentence explanation of the fact-checking result based on sources"
+                    },
+                    "sources": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "List of source links used for verification"
+                    }
+                },
+                "required": ["final_decision", "short_explanation", "sources"],
+                "additionalProperties": False
+            }
+        }
+    }
 
     payload = {
         "model": "sonar",
         "messages": [
             {
                 "role": "system",
-                "content": "Ты полезный фактчекер и преподаватель. Анализируй контент на точность, объясняй концепции понятно и предоставляй образовательный контекст. Отвечай структурированно и подробно.",
+                "content": "You are an assistant that helps to fact-check statements from youtube videos. Always provide structured responses with clear decisions and reliable sources.",
             },
             {"role": "user", "content": prompt},
         ],
-        "stream": True,
+        "response_format": response_format,
         "max_tokens": 1500,
     }
 
@@ -140,41 +190,45 @@ async def stream_perplexity_response(
 
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
-            async with client.stream(
-                "POST", PERPLEXITY_API_URL, json=payload, headers=headers
-            ) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    # Оставляем только лог ошибки
-                    print(
-                        f"!!! Perplexity API Error: {response.status_code} - {error_text.decode()}"
-                    )
-                    yield f"Error: API request failed with status {response.status_code}: {error_text.decode()}"
-                    return
+            response = await client.post(
+                PERPLEXITY_API_URL, json=payload, headers=headers
+            )
+            
+            if response.status_code != 200:
+                error_text = response.text
+                print(f"!!! Perplexity API Error: {response.status_code} - {error_text}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"API request failed with status {response.status_code}: {error_text}"
+                )
 
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                            if "choices" in chunk and len(chunk["choices"]) > 0:
-                                delta = chunk["choices"][0].get("delta", {})
-                                if "content" in delta:
-                                    yield delta["content"]
-                        except json.JSONDecodeError:
-                            continue
+            response_data = response.json()
+            
+            # Extract the structured content
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                content = response_data["choices"][0]["message"]["content"]
+                
+                try:
+                    # Parse the JSON response
+                    parsed_response = json.loads(content)
+                    return FactCheckResponse(**parsed_response)
+                except json.JSONDecodeError as e:
+                    print(f"Failed to parse JSON response: {content}")
+                    raise HTTPException(status_code=500, detail="Failed to parse API response")
+            else:
+                raise HTTPException(status_code=500, detail="No response from API")
 
     except httpx.TimeoutException:
-        yield "Error: Request timed out. Please try again."
+        raise HTTPException(status_code=504, detail="Request timed out. Please try again.")
     except httpx.RequestError as e:
-        yield f"Error: Network error occurred: {str(e)}"
+        raise HTTPException(status_code=500, detail=f"Network error occurred: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
-        yield f"Error: Unexpected error occurred: {str(e)}"
+        raise HTTPException(status_code=500, detail=f"Unexpected error occurred: {str(e)}")
 
 
-@app.post("/analyze")
+@app.post("/analyze", response_model=VideoAnalysisResponse)
 async def analyze_video(request: VideoAnalysisRequest):
     """Анализ содержимого YouTube видео в определенный момент времени"""
 
@@ -204,20 +258,21 @@ async def analyze_video(request: VideoAnalysisRequest):
         print("------------------------------------\n")
 
         # 4. Анализируем отфильтрованный факт через Perplexity
-        return StreamingResponse(
-            stream_perplexity_response(last_fact, transcript_data["segment_info"]),
-            media_type="text/plain",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
+        fact_check_result = await get_perplexity_fact_check(last_fact, transcript_data["segment_info"])
+        
+        return VideoAnalysisResponse(
+            video_id=request.video_id,
+            current_time=request.current_time,
+            segment_info=transcript_data["segment_info"],
+            analyzed_fact=last_fact,
+            fact_check=fact_check_result
         )
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/fact-check")
+@app.post("/fact-check", response_model=FactCheckEndpointResponse)
 async def fact_check(request: FactCheckRequest):
     """Проверка фактов для произвольного утверждения"""
     if not request.statement.strip():
@@ -229,13 +284,10 @@ async def fact_check(request: FactCheckRequest):
             detail="Утверждение слишком длинное (максимум 1000 символов)",
         )
 
-    return StreamingResponse(
-        stream_perplexity_response(request.statement),
-        media_type="text/plain",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
+    fact_check_result = await get_perplexity_fact_check(request.statement)
+    return FactCheckEndpointResponse(
+        statement=request.statement,
+        fact_check=fact_check_result
     )
 
 

@@ -332,55 +332,15 @@
             initialMessage.classList.add('hidden');
         }
 
-        function parseVerdict(text) {
-            const lowerText = text.toLowerCase();
-            
-            // Count various indicators
-            const falseCount = (lowerText.match(/false|неверно|incorrect|wrong|ошибочно|inaccurate|misleading|untrue|неправда|debunked|disproven|contradicted|unfounded/g) || []).length;
-            const trueCount = (lowerText.match(/true|верно|correct|accurate|confirmed|подтверждено|factual|valid|действительно|verified|проверено|reliable|supported/g) || []).length;
-            
-            // Check for uncertainty indicators
-            const hasUncertainty = lowerText.includes('uncertain') || lowerText.includes('неясно') || 
-                                  lowerText.includes('unclear') || lowerText.includes('неопределенно') ||
-                                  lowerText.includes('mixed') || lowerText.includes('смешанные') ||
-                                  lowerText.includes('partially') || lowerText.includes('частично') ||
-                                  lowerText.includes('depends') || lowerText.includes('зависит');
-
-            // Decision logic with weighted scoring
-            if (falseCount > trueCount && falseCount >= 1) {
-                return { type: 'false', icon: '✗', text: 'FALSE' };
-            } else if (trueCount > falseCount && trueCount >= 1) {
-                return { type: 'true', icon: '✓', text: 'TRUE' };
-            } else if (hasUncertainty || (trueCount === 0 && falseCount === 0)) {
-                return { type: 'unclear', icon: '?', text: 'UNCLEAR' };
-            } else if (trueCount === falseCount && trueCount > 0) {
-                // If equal counts but both present, likely unclear
-                return { type: 'unclear', icon: '?', text: 'UNCLEAR' };
-            } else {
-                return { type: 'unclear', icon: '?', text: 'UNCLEAR' };
-            }
-        }
-
-        async function getVerdictFromAPI(statement) {
-            try {
-                const response = await fetch('http://localhost:8000/check-statement', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ statement: statement })
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-                return data.verdict;
-            } catch (error) {
-                console.error('Error getting verdict from API:', error);
-                // Fallback to local parsing
-                return parseVerdict(statement);
+        function mapDecisionToVerdict(decision) {
+            switch (decision.toLowerCase()) {
+                case 'true':
+                    return { type: 'true', icon: '✓', text: 'TRUE' };
+                case 'false':
+                    return { type: 'false', icon: '✗', text: 'FALSE' };
+                case 'unknown':
+                default:
+                    return { type: 'unclear', icon: '?', text: 'UNCLEAR' };
             }
         }
 
@@ -391,17 +351,13 @@
             verdictSection.classList.remove('hidden');
         }
 
-        function extractSources(text) {
-            const urlRegex = /(https?:\/\/[^\s\)]+)/g;
-            const matches = text.match(urlRegex) || [];
-            
-            // Clean up URLs (remove trailing punctuation)
-            return matches.map(url => {
-                return url.replace(/[.,;:)}\]]+$/, '');
-            }).filter((url, index, self) => {
-                // Remove duplicates
-                return self.indexOf(url) === index;
-            });
+        function displaySources(sources) {
+            if (sources && sources.length > 0) {
+                sourcesContent.innerHTML = sources.map(source => 
+                    `<div style="margin-bottom: 8px;">• <a href="${source}" target="_blank" style="color: #007bff; text-decoration: none;">${source}</a></div>`
+                ).join('');
+                sourcesSection.classList.remove('hidden');
+            }
         }
 
         async function performFactCheck() {
@@ -430,55 +386,26 @@
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
+                const data = await response.json();
+                
                 hideAllSections();
-                
-                let fullResponse = '';
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    
-                    if (done) break;
-                    
-                    const chunk = decoder.decode(value, { stream: true });
-                    fullResponse += chunk;
-                }
+                // Handle structured response
+                if (data.fact_check) {
+                    // Update verdict using the final_decision field
+                    const verdict = mapDecisionToVerdict(data.fact_check.final_decision);
+                    updateVerdict(verdict);
 
-                // Parse the complete response
-                const lines = fullResponse.split('\n');
-                let explanation = '';
-                
-                // Get verdict from API for better accuracy
-                const verdict = await getVerdictFromAPI(statement);
-                updateVerdict(verdict);
-
-                // Extract explanation (skip sources)
-                for (const line of lines) {
-                    if (!line.toLowerCase().includes('source') && 
-                        !line.includes('http') && 
-                        !line.includes('www.') &&
-                        !line.includes('[') &&
-                        line.trim().length > 0) {
-                        explanation += line + '\n';
+                    // Display explanation
+                    if (data.fact_check.short_explanation) {
+                        explanationContent.textContent = data.fact_check.short_explanation;
+                        explanationSection.classList.remove('hidden');
                     }
-                }
 
-                // Limit explanation to first 200 characters
-                if (explanation.length > 200) {
-                    explanation = explanation.substring(0, 200) + '...';
-                }
-
-                explanationContent.textContent = explanation.trim();
-                explanationSection.classList.remove('hidden');
-
-                // Extract and display sources
-                const sources = extractSources(fullResponse);
-                if (sources.length > 0) {
-                    sourcesContent.innerHTML = sources.slice(0, 3).map(source => 
-                        `<div style="margin-bottom: 8px;">• <a href="${source}" target="_blank" style="color: #007bff; text-decoration: none;">${source}</a></div>`
-                    ).join('');
-                    sourcesSection.classList.remove('hidden');
+                    // Display sources
+                    displaySources(data.fact_check.sources);
+                } else {
+                    throw new Error('Invalid response format from API');
                 }
 
             } catch (error) {
