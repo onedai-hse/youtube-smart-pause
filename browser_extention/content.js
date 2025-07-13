@@ -85,7 +85,7 @@ function closeSidebar() {
   }
 }
 
-function analyzeCurrentPosition() {
+async function analyzeCurrentPosition() {
   const resultDiv = document.getElementById('analysis-result');
   const video = document.querySelector('video');
   
@@ -102,18 +102,38 @@ function analyzeCurrentPosition() {
     context_seconds: 30
   };
   
-  fetch('http://localhost:5000/analyze', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestData)
-  })
-  .then(response => response.json())
-  .then(result => {
-    resultDiv.textContent = result.analysis || 'Analysis completed';
-  })
-  .catch(error => {
+  try {
+    const response = await fetch('http://localhost:8000/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestData)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Server error: ${response.status} - ${errorText}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    resultDiv.textContent = ''; // Clear "Analyzing..."
+    let fullText = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      const chunk = decoder.decode(value, { stream: true });
+      fullText += chunk;
+      if (typeof marked === 'function') {
+        resultDiv.innerHTML = marked.parse(fullText);
+      } else {
+        resultDiv.textContent = fullText; // Fallback if marked.js is not loaded
+      }
+    }
+  } catch (error) {
     resultDiv.textContent = 'Error: ' + error.message;
-  });
+  }
 }
 
 document.addEventListener('keydown', function(event) {
