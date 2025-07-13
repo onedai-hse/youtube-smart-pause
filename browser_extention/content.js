@@ -1,3 +1,9 @@
+if (typeof marked === 'function') {
+  console.log('YouTube Assistant: marked.js library loaded successfully.');
+} else {
+  console.error('YouTube Assistant: marked.js library NOT FOUND. Markdown will not be rendered. Please ensure marked.min.js is in the browser_extention folder.');
+}
+
 let sidebarOpen = false;
 let updateInterval = null;
 
